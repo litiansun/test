@@ -33,6 +33,13 @@ usdjpy_waypoints = [
     ("2025-01-01", 157.0),
     ("2025-04-01", 149.0),
     ("2025-05-25", 143.5),
+    ("2025-07-01", 146.0),
+    ("2025-09-01", 142.5),
+    ("2025-11-01", 152.0),
+    ("2026-01-01", 156.0),
+    ("2026-02-15", 151.0),
+    ("2026-04-01", 145.0),
+    ("2026-05-20", 143.0),
 ]
 
 # US 30-Year Bond Yield (%)
@@ -55,6 +62,13 @@ ty30_waypoints = [
     ("2025-03-01",  4.60),
     ("2025-04-11",  4.87),
     ("2025-05-25",  5.09),
+    ("2025-07-01",  4.88),
+    ("2025-09-01",  4.70),
+    ("2025-11-01",  4.82),
+    ("2026-01-01",  4.92),
+    ("2026-02-15",  4.75),
+    ("2026-04-01",  4.95),
+    ("2026-05-20",  5.05),
 ]
 
 def build_series(waypoints, freq="B"):
@@ -200,7 +214,7 @@ ax.text(0.005, 0.920,
 
 ax.set_title(
     "USD/JPY  vs  US 30-Year Treasury Yield  —  5-Year Daily  (min-max normalised)\n"
-    "(reconstructed from historical waypoints, May 2021 – May 2026)",
+    "(reconstructed from historical waypoints, May 2021 – May 2026; post-Aug 2025 extrapolated)",
     fontsize=12, fontweight="bold", pad=10
 )
 ax.legend(loc="upper right", fontsize=10, framealpha=0.85)
