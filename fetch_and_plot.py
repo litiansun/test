@@ -1,7 +1,6 @@
 """
-USD/JPY and US 30-Year Treasury Yield — 5-year daily reconstruction.
-Data is reconstructed from known historical waypoints (training knowledge).
-Interpolated with mild Brownian noise to produce realistic daily series.
+USD/JPY and US 30-Year Treasury Yield — 5-year daily chart.
+Data loaded from investing.com CSV exports.
 """
 import numpy as np
 import pandas as pd
@@ -9,92 +8,29 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from scipy.signal import find_peaks
 
-rng = np.random.default_rng(42)
-
-# ── known historical waypoints ────────────────────────────────────────────────
-# USD/JPY
-usdjpy_waypoints = [
-    ("2021-05-25", 109.0),
-    ("2021-10-01", 111.5),
-    ("2022-01-01", 115.0),
-    ("2022-03-01", 115.5),
-    ("2022-06-01", 133.0),
-    ("2022-10-21", 151.9),   # cycle high
-    ("2022-12-31", 131.0),
-    ("2023-01-16", 128.0),   # local low
-    ("2023-06-30", 144.5),
-    ("2023-11-13", 151.7),   # second peak
-    ("2024-01-02", 141.0),
-    ("2024-04-29", 160.2),   # all-time high
-    ("2024-07-01", 161.5),
-    ("2024-09-16", 140.0),   # sharp reversal
-    ("2024-12-31", 157.0),
-    ("2025-01-01", 157.0),
-    ("2025-04-01", 149.0),
-    ("2025-05-25", 143.5),
-    ("2025-07-01", 146.0),
-    ("2025-09-01", 142.5),
-    ("2025-11-01", 152.0),
-    ("2026-01-01", 156.0),
-    ("2026-02-15", 151.0),
-    ("2026-04-01", 145.0),
-    ("2026-05-20", 143.0),
-]
-
-# US 30-Year Bond Yield (%)
-ty30_waypoints = [
-    ("2021-05-25",  2.26),
-    ("2021-08-01",  1.86),
-    ("2021-11-01",  2.04),
-    ("2022-01-03",  2.01),
-    ("2022-04-01",  2.70),
-    ("2022-06-14",  3.48),
-    ("2022-10-24",  4.34),   # cycle high
-    ("2022-12-30",  3.96),
-    ("2023-04-05",  3.77),
-    ("2023-10-23",  5.11),   # multi-decade high
-    ("2023-12-29",  4.03),
-    ("2024-04-25",  4.74),
-    ("2024-09-16",  4.02),
-    ("2024-12-31",  4.78),
-    ("2025-01-01",  4.78),
-    ("2025-03-01",  4.60),
-    ("2025-04-11",  4.87),
-    ("2025-05-25",  5.09),
-    ("2025-07-01",  4.88),
-    ("2025-09-01",  4.70),
-    ("2025-11-01",  4.82),
-    ("2026-01-01",  4.92),
-    ("2026-02-15",  4.75),
-    ("2026-04-01",  4.95),
-    ("2026-05-20",  5.05),
-]
-
-def build_series(waypoints, freq="B"):
-    dates  = pd.to_datetime([w[0] for w in waypoints])
-    values = np.array([w[1]  for w in waypoints], dtype=float)
-    idx_full = pd.bdate_range(dates[0], dates[-1])
-    # map waypoint dates to positions in the full business-day index
-    wp_positions = np.searchsorted(idx_full, dates).clip(0, len(idx_full) - 1)
-    base = np.interp(np.arange(len(idx_full)), wp_positions, values)
-    # mean-reverting noise: each step pulled back toward 0
-    alpha = 0.05   # reversion strength
-    sigma = base.mean() * 0.0018
-    noise = np.zeros(len(base))
-    for i in range(1, len(base)):
-        noise[i] = noise[i-1] * (1 - alpha) + rng.normal(0, sigma)
-    raw = base + noise
-    s = pd.Series(raw, index=idx_full)
-    s = s.clip(lower=min(values) * 0.97, upper=max(values) * 1.015)
-    return s
-
-usdjpy = build_series(usdjpy_waypoints)
+# ── load USD/JPY (Japanese headers, YYYY-MM-DD dates) ────────────────────────
+usdjpy_raw = pd.read_csv(
+    "/root/.claude/uploads/60eb40a6-d9ec-4243-9e7b-8e049c70b9c9/"
+    "7f9e7fb8-USD_JPY_Historical_Data.csv"
+)
+usdjpy_raw.columns = ['date', 'close', 'open', 'high', 'low', 'volume', 'change']
+usdjpy_raw['date'] = pd.to_datetime(usdjpy_raw['date'])
+usdjpy = usdjpy_raw.set_index('date')['close'].astype(float).sort_index()
 usdjpy.name = "USD/JPY"
 
-ty30 = build_series(ty30_waypoints)
+# ── load US 30Y Yield (English headers, MM/DD/YYYY dates) ────────────────────
+ty30_raw = pd.read_csv(
+    "/root/.claude/uploads/60eb40a6-d9ec-4243-9e7b-8e049c70b9c9/"
+    "d0d5b067-United_States_30Year_Bond_Yield_Historical_Data.csv"
+)
+ty30_raw.columns = ['date', 'price', 'open', 'high', 'low', 'change']
+ty30_raw['date'] = pd.to_datetime(ty30_raw['date'], format='%m/%d/%Y')
+ty30 = ty30_raw.set_index('date')['price'].astype(float).sort_index()
 ty30.name = "US 30Y Yield (%)"
 
+# ── align on common dates ─────────────────────────────────────────────────────
 df = pd.concat([usdjpy, ty30], axis=1).dropna()
 df.columns = ["USD/JPY", "US 30Y Yield (%)"]
 
@@ -119,15 +55,11 @@ print("=" * 56)
 df_norm = (df - df.min()) / (df.max() - df.min())
 
 # ── detect notable peaks and troughs ─────────────────────────────────────────
-from scipy.signal import find_peaks
-
 def get_extrema(series, prominence_frac=0.12):
-    """Return (peak_indices, trough_indices) filtered by prominence."""
     arr = series.values
     prom = (arr.max() - arr.min()) * prominence_frac
-    peaks,  _  = find_peaks( arr, prominence=prom, distance=30)
+    peaks,   _ = find_peaks( arr, prominence=prom, distance=30)
     troughs, _ = find_peaks(-arr, prominence=prom, distance=30)
-    # always include global max and min
     peaks   = np.union1d(peaks,   [arr.argmax()])
     troughs = np.union1d(troughs, [arr.argmin()])
     return peaks, troughs
@@ -160,7 +92,6 @@ def annotate_extrema(ax, df_orig, df_norm, idxs, col, color, is_peak):
         unit   = "%" if "Yield" in col else ""
         label  = f"{orig:.2f}{unit}\n{date.strftime('%b %y')}"
         va     = "bottom" if is_peak else "top"
-        yoff   = 0.04 if is_peak else -0.04
         ax.plot(date, norm_y, marker="^" if is_peak else "v",
                 ms=5, color=color, zorder=5)
         ax.annotate(label, xy=(date, norm_y),
@@ -181,14 +112,14 @@ ax.axhline(0, color="grey", linewidth=0.4, linestyle=":")
 ax.axhline(1, color="grey", linewidth=0.4, linestyle=":")
 
 # year separators
-for yr in range(2022, 2026):
+for yr in range(2022, 2027):
     ax.axvline(pd.Timestamp(f"{yr}-01-01"), color="grey",
                linewidth=0.6, linestyle="--", alpha=0.35)
 
 ax.set_ylim(-0.22, 1.28)
 ax.set_ylabel("Min-max normalised  (0 = period low, 1 = period high)", fontsize=10)
 
-# ── x-axis: tick every 3 months ──────────────────────────────────────────────
+# x-axis: tick every 3 months
 ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
 ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
 ax.xaxis.set_minor_locator(mdates.MonthLocator(interval=1))
@@ -214,7 +145,7 @@ ax.text(0.005, 0.920,
 
 ax.set_title(
     "USD/JPY  vs  US 30-Year Treasury Yield  —  5-Year Daily  (min-max normalised)\n"
-    "(reconstructed from historical waypoints, May 2021 – May 2026; post-Aug 2025 extrapolated)",
+    f"(investing.com data, {df.index[0].strftime('%b %Y')} – {df.index[-1].strftime('%b %Y')})",
     fontsize=12, fontweight="bold", pad=10
 )
 ax.legend(loc="upper right", fontsize=10, framealpha=0.85)
